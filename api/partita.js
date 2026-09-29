@@ -18,6 +18,10 @@ import {
   normalizzaFormazioni
 } from "../lib/formazioni.js";
 
+import {
+  creaContestoPartita
+} from "../lib/contesto-partita.js";
+
 
 export default async function handler(req, res) {
 
@@ -29,9 +33,9 @@ export default async function handler(req, res) {
     } = req.query;
 
 
-    // ==============================
+    // ==========================================
     // CONTROLLO ID
-    // ==============================
+    // ==========================================
 
     if (!id) {
 
@@ -43,22 +47,23 @@ export default async function handler(req, res) {
     }
 
 
-    // ==============================
+    // ==========================================
     // SUMMARY ESPN
-    // ==============================
+    // ==========================================
 
-    const summary = await espnFetch(
-      league,
-      "summary",
-      {
-        event: id
-      }
-    );
+    const summary =
+      await espnFetch(
+        league,
+        "summary",
+        {
+          event: id
+        }
+      );
 
 
-    // ==============================
+    // ==========================================
     // COMPETIZIONE
-    // ==============================
+    // ==========================================
 
     const competition =
       summary?.header?.competitions?.[0];
@@ -70,56 +75,82 @@ export default async function handler(req, res) {
 
     const home =
       competitors.find(
-        team => team.homeAway === "home"
+        team =>
+          team.homeAway === "home"
       );
 
 
     const away =
       competitors.find(
-        team => team.homeAway === "away"
+        team =>
+          team.homeAway === "away"
       );
 
 
-    // ==============================
-    // EVENTI DELLA PARTITA
-    // ==============================
+    // ==========================================
+    // ID SQUADRE
+    // ==========================================
+
+    const homeId =
+      home?.team?.id ||
+      home?.id ||
+      null;
+
+
+    const awayId =
+      away?.team?.id ||
+      away?.id ||
+      null;
+
+
+    // ==========================================
+    // EVENTI
+    // ==========================================
 
     const eventi =
-      normalizzaEventi(summary);
+      normalizzaEventi(
+        summary
+      );
 
 
     const eventiSeparati =
-      separaEventi(eventi);
+      separaEventi(
+        eventi
+      );
 
 
-    // ==============================
+    // ==========================================
     // DATI TECNICI
-    // ==============================
+    // ==========================================
 
     const datiTecnici =
-      estraiDatiTecnici(summary);
+      estraiDatiTecnici(
+        summary
+      );
 
 
-    // ==============================
+    // ==========================================
     // FORMAZIONI
-    // ==============================
+    // ==========================================
 
     const formazioni =
-      normalizzaFormazioni(summary);
+      normalizzaFormazioni(
+        summary
+      );
 
 
-    // ==============================
-    // STATISTICHE ESPN CORE
-    // ==============================
+    // ==========================================
+    // STATISTICHE SQUADRE
+    // ==========================================
 
     let statisticheCasa = [];
 
     let statisticheTrasferta = [];
 
 
-    // ==============================
+    // ==========================================
     // STATISTICHE CASA
-    // ==============================
+    // ==========================================
 
     if (home?.id) {
 
@@ -137,7 +168,6 @@ export default async function handler(req, res) {
             dataCasa
           );
 
-
       } catch (error) {
 
         console.error(
@@ -150,9 +180,9 @@ export default async function handler(req, res) {
     }
 
 
-    // ==============================
+    // ==========================================
     // STATISTICHE TRASFERTA
-    // ==============================
+    // ==========================================
 
     if (away?.id) {
 
@@ -170,7 +200,6 @@ export default async function handler(req, res) {
             dataTrasferta
           );
 
-
       } catch (error) {
 
         console.error(
@@ -183,9 +212,9 @@ export default async function handler(req, res) {
     }
 
 
-    // ==============================
-    // CREAZIONE STATISTICHE FINALI
-    // ==============================
+    // ==========================================
+    // STATISTICHE FINALI
+    // ==========================================
 
     const statistiche =
       creaStatistichePartita(
@@ -194,9 +223,86 @@ export default async function handler(req, res) {
       );
 
 
-    // ==============================
+    // ==========================================
+    // CONTESTO PARTITA
+    // ==========================================
+
+    let contesto = {
+
+      allenatori: {
+
+        casa: [],
+
+        trasferta: []
+
+      },
+
+      arbitri: [],
+
+      stadio: null,
+
+      classifica: {
+
+        casa: null,
+
+        trasferta: null
+
+      },
+
+      ultime_partite: {
+
+        casa: {
+
+          ultima: null,
+
+          ultime_5: []
+
+        },
+
+        trasferta: {
+
+          ultima: null,
+
+          ultime_5: []
+
+        }
+
+      }
+
+    };
+
+
+    if (
+      homeId &&
+      awayId
+    ) {
+
+      try {
+
+        contesto =
+          await creaContestoPartita(
+            league,
+            id,
+            summary,
+            homeId,
+            awayId
+          );
+
+      } catch (error) {
+
+        console.error(
+          "Errore contesto partita:",
+          error.message
+        );
+
+      }
+
+    }
+
+
+    // ==========================================
     // RISPOSTA FINALE
-    // ==============================
+    // ==========================================
 
     res.status(200).json({
 
@@ -207,34 +313,58 @@ export default async function handler(req, res) {
       league,
 
 
+      // ========================================
+      // PARTITA
+      // ========================================
+
       partita: {
 
         id,
 
         nome:
           competitors
-            .map(team =>
-              team.team?.displayName
+            .map(
+              team =>
+                team.team?.displayName
             )
             .filter(Boolean)
-            .join(" - ") || null,
+            .join(" - ") ||
+          null,
 
 
         data:
           competition?.date ||
-          summary?.header?.competitions?.[0]?.date ||
+          null,
+
+
+        competizione: {
+
+          nome:
+            summary?.header?.league?.name ||
+            summary?.header?.competitions?.[0]?.league?.name ||
+            null,
+
+          abbreviazione:
+            summary?.header?.league?.abbreviation ||
+            summary?.header?.competitions?.[0]?.league?.abbreviation ||
+            null
+
+        },
+
+
+        stagione:
+          summary?.header?.season?.displayName ||
           null,
 
 
         stato:
           competition?.status ||
-          summary?.header?.competitions?.[0]?.status ||
           null,
 
 
-        // ==========================
-        // SQUADRA CASA
-        // ==========================
+        // ======================================
+        // CASA
+        // ======================================
 
         casa: {
 
@@ -243,31 +373,25 @@ export default async function handler(req, res) {
             home?.id ||
             null,
 
-
           nome:
             home?.team?.displayName ||
             null,
-
 
           nome_breve:
             home?.team?.shortDisplayName ||
             null,
 
-
           abbreviazione:
             home?.team?.abbreviation ||
             null,
-
 
           logo:
             home?.team?.logo ||
             null,
 
-
           punteggio:
             home?.score ??
             null,
-
 
           vincitore:
             home?.winner ??
@@ -276,9 +400,9 @@ export default async function handler(req, res) {
         },
 
 
-        // ==========================
-        // SQUADRA TRASFERTA
-        // ==========================
+        // ======================================
+        // TRASFERTA
+        // ======================================
 
         trasferta: {
 
@@ -287,31 +411,25 @@ export default async function handler(req, res) {
             away?.id ||
             null,
 
-
           nome:
             away?.team?.displayName ||
             null,
-
 
           nome_breve:
             away?.team?.shortDisplayName ||
             null,
 
-
           abbreviazione:
             away?.team?.abbreviation ||
             null,
-
 
           logo:
             away?.team?.logo ||
             null,
 
-
           punteggio:
             away?.score ??
             null,
-
 
           vincitore:
             away?.winner ??
@@ -322,24 +440,64 @@ export default async function handler(req, res) {
       },
 
 
-      // ==============================
-      // TUTTI GLI EVENTI
-      // ==============================
+      // ========================================
+      // STADIO
+      // ========================================
+
+      stadio:
+        contesto.stadio,
+
+
+      // ========================================
+      // ALLENATORI
+      // ========================================
+
+      allenatori:
+        contesto.allenatori,
+
+
+      // ========================================
+      // ARBITRI
+      // ========================================
+
+      arbitri:
+        contesto.arbitri,
+
+
+      // ========================================
+      // CLASSIFICA
+      // ========================================
+
+      classifica:
+        contesto.classifica,
+
+
+      // ========================================
+      // ULTIME PARTITE
+      // ========================================
+
+      ultime_partite:
+        contesto.ultime_partite,
+
+
+      // ========================================
+      // EVENTI
+      // ========================================
 
       eventi,
 
 
-      // ==============================
+      // ========================================
       // GOL
-      // ==============================
+      // ========================================
 
       gol:
         eventiSeparati.gol,
 
 
-      // ==============================
+      // ========================================
       // CARTELLINI
-      // ==============================
+      // ========================================
 
       cartellini: {
 
@@ -352,56 +510,56 @@ export default async function handler(req, res) {
       },
 
 
-      // ==============================
+      // ========================================
       // SOSTITUZIONI
-      // ==============================
+      // ========================================
 
       sostituzioni:
         eventiSeparati.sostituzioni,
 
 
-      // ==============================
+      // ========================================
       // RIGORI
-      // ==============================
+      // ========================================
 
       rigori:
         eventiSeparati.rigori,
 
 
-      // ==============================
-      // FORMAZIONI NORMALIZZATE
-      // ==============================
+      // ========================================
+      // FORMAZIONI
+      // ========================================
 
       formazioni,
 
 
-      // ==============================
-      // STATISTICHE SQUADRE
-      // ==============================
+      // ========================================
+      // STATISTICHE
+      // ========================================
 
       statistiche_squadre:
         statistiche,
 
 
-      // ==============================
+      // ========================================
       // ALTRI EVENTI
-      // ==============================
+      // ========================================
 
       altri_eventi:
         eventiSeparati.altri,
 
 
-      // ==============================
-      // DATI TECNICI ORIGINALI
-      // ==============================
+      // ========================================
+      // DATI TECNICI
+      // ========================================
 
       dati_tecnici:
         datiTecnici,
 
 
-      // ==============================
+      // ========================================
       // DATI ORIGINALI ESPN
-      // ==============================
+      // ========================================
 
       dati_originali:
         summary
@@ -411,7 +569,10 @@ export default async function handler(req, res) {
 
   } catch (error) {
 
-    console.error(error);
+    console.error(
+      "Errore API partita:",
+      error
+    );
 
 
     res.status(500).json({
@@ -420,7 +581,9 @@ export default async function handler(req, res) {
 
       source: "ESPN",
 
-      error: error.message
+      error:
+        error?.message ||
+        "Errore sconosciuto"
 
     });
 
