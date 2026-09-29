@@ -66,17 +66,9 @@ export default async function handler(req, res) {
       },
 
       fonti: {
-        partite: [
-          "ESPN"
-        ],
-
-        classifiche: [
-          "ESPN"
-        ],
-
-        giocatori: [
-          "ESPN"
-        ],
+        partite: ["ESPN"],
+        classifiche: ["ESPN"],
+        giocatori: ["ESPN"],
 
         notizie: [
           "OneFootball",
@@ -111,7 +103,7 @@ export default async function handler(req, res) {
       }
     };
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       source: "Il Pianeta Comasco API",
       configurazione
@@ -123,9 +115,11 @@ export default async function handler(req, res) {
       error
     );
 
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
-      error: error?.message || "Errore sconosciuto"
+      error:
+        error?.message ||
+        "Errore sconosciuto"
     });
   }
 }
