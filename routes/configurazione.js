@@ -2,9 +2,7 @@ import { COMO } from "../config/como.js";
 
 export default async function handler(req, res) {
   try {
-
     const configurazione = {
-
       progetto: {
         nome: "Il Pianeta Comasco",
         versione: "1.0.0",
@@ -19,7 +17,6 @@ export default async function handler(req, res) {
       },
 
       competizioni: {
-
         serie_a: {
           nome: "Serie A",
           espn_league: "ita.1",
@@ -49,11 +46,9 @@ export default async function handler(req, res) {
           espn_league: "uefa.europa.conf",
           attiva: true
         }
-
       },
 
       squadre: {
-
         prima_squadra_maschile: {
           nome: "Como",
           attiva: true
@@ -68,11 +63,9 @@ export default async function handler(req, res) {
           nome: "Como Women",
           attiva: true
         }
-
       },
 
       fonti: {
-
         partite: [
           "ESPN"
         ],
@@ -91,92 +84,48 @@ export default async function handler(req, res) {
           "La Gazzetta dello Sport",
           "Tuttomercatoweb"
         ]
-
       },
 
       api: {
-
         partite: "/api/partite",
-
         partita: "/api/partita",
-
         como: "/api/como",
-
         como_team: "/api/como-team",
-
         como_info: "/api/como-info",
-
         classifica: "/api/classifica",
-
         giocatori: "/api/giocatori",
-
-        statistiche_giocatori:
-          "/api/statistiche-giocatori",
-
-        indisponibili:
-          "/api/indisponibili",
-
-        squalificati:
-          "/api/squalificati",
-
-        coppe:
-          "/api/coppe",
-
-        notizie:
-          "/api/notizie",
-
-        formazioni:
-          "/api/formazioni",
-
-        scontri_diretti:
-          "/api/scontri-diretti",
-
-        configurazione:
-          "/api/configurazione"
-
+        statistiche_giocatori: "/api/statistiche-giocatori",
+        indisponibili: "/api/indisponibili",
+        squalificati: "/api/squalificati",
+        coppe: "/api/coppe",
+        notizie: "/api/notizie",
+        formazioni: "/api/formazioni",
+        scontri_diretti: "/api/scontri-diretti",
+        configurazione: "/api/configurazione"
       },
 
       google_sheets: {
-
         attivo: false,
-
-        sincronizzazione_automatica:
-          false,
-
-        stato:
-          "Da configurare"
-
+        sincronizzazione_automatica: false,
+        stato: "Da configurare"
       }
-
     };
 
-
-    res.status(200).json({
-
+    return res.status(200).json({
       success: true,
-
       source: "Il Pianeta Comasco API",
-
       configurazione
-
     });
 
   } catch (error) {
-
     console.error(
       "Errore API configurazione:",
       error
     );
 
-    res.status(500).json({
-
+    return res.status(500).json({
       success: false,
-
-      error:
-        error?.message ||
-        "Errore sconosciuto"
-
+      error: error?.message || "Errore sconosciuto"
     });
-
   }
-        }
+}
