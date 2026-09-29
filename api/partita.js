@@ -14,6 +14,10 @@ import {
   creaStatistichePartita
 } from "../lib/statistiche-partita.js";
 
+import {
+  normalizzaFormazioni
+} from "../lib/formazioni.js";
+
 
 export default async function handler(req, res) {
 
@@ -24,6 +28,10 @@ export default async function handler(req, res) {
       id
     } = req.query;
 
+
+    // ==============================
+    // CONTROLLO ID
+    // ==============================
 
     if (!id) {
 
@@ -48,6 +56,10 @@ export default async function handler(req, res) {
     );
 
 
+    // ==============================
+    // COMPETIZIONE
+    // ==============================
+
     const competition =
       summary?.header?.competitions?.[0];
 
@@ -69,7 +81,7 @@ export default async function handler(req, res) {
 
 
     // ==============================
-    // EVENTI
+    // EVENTI DELLA PARTITA
     // ==============================
 
     const eventi =
@@ -89,6 +101,14 @@ export default async function handler(req, res) {
 
 
     // ==============================
+    // FORMAZIONI
+    // ==============================
+
+    const formazioni =
+      normalizzaFormazioni(summary);
+
+
+    // ==============================
     // STATISTICHE ESPN CORE
     // ==============================
 
@@ -96,6 +116,10 @@ export default async function handler(req, res) {
 
     let statisticheTrasferta = [];
 
+
+    // ==============================
+    // STATISTICHE CASA
+    // ==============================
 
     if (home?.id) {
 
@@ -107,10 +131,12 @@ export default async function handler(req, res) {
             `events/${id}/competitions/${id}/competitors/${home.id}/statistics`
           );
 
+
         statisticheCasa =
           normalizzaStatisticheSquadra(
             dataCasa
           );
+
 
       } catch (error) {
 
@@ -124,6 +150,10 @@ export default async function handler(req, res) {
     }
 
 
+    // ==============================
+    // STATISTICHE TRASFERTA
+    // ==============================
+
     if (away?.id) {
 
       try {
@@ -134,10 +164,12 @@ export default async function handler(req, res) {
             `events/${id}/competitions/${id}/competitors/${away.id}/statistics`
           );
 
+
         statisticheTrasferta =
           normalizzaStatisticheSquadra(
             dataTrasferta
           );
+
 
       } catch (error) {
 
@@ -151,6 +183,10 @@ export default async function handler(req, res) {
     }
 
 
+    // ==============================
+    // CREAZIONE STATISTICHE FINALI
+    // ==============================
+
     const statistiche =
       creaStatistichePartita(
         statisticheCasa,
@@ -159,7 +195,7 @@ export default async function handler(req, res) {
 
 
     // ==============================
-    // RISPOSTA
+    // RISPOSTA FINALE
     // ==============================
 
     res.status(200).json({
@@ -176,18 +212,29 @@ export default async function handler(req, res) {
         id,
 
         nome:
-          competition?.competitors
-            ?.map(team =>
+          competitors
+            .map(team =>
               team.team?.displayName
             )
-            ?.join(" - ") || null,
+            .filter(Boolean)
+            .join(" - ") || null,
+
 
         data:
-          competition?.date || null,
+          competition?.date ||
+          summary?.header?.competitions?.[0]?.date ||
+          null,
+
 
         stato:
-          competition?.status || null,
+          competition?.status ||
+          summary?.header?.competitions?.[0]?.status ||
+          null,
 
+
+        // ==========================
+        // SQUADRA CASA
+        // ==========================
 
         casa: {
 
@@ -196,20 +243,42 @@ export default async function handler(req, res) {
             home?.id ||
             null,
 
+
           nome:
             home?.team?.displayName ||
             null,
+
+
+          nome_breve:
+            home?.team?.shortDisplayName ||
+            null,
+
+
+          abbreviazione:
+            home?.team?.abbreviation ||
+            null,
+
 
           logo:
             home?.team?.logo ||
             null,
 
+
           punteggio:
-            home?.score ||
+            home?.score ??
+            null,
+
+
+          vincitore:
+            home?.winner ??
             null
 
         },
 
+
+        // ==========================
+        // SQUADRA TRASFERTA
+        // ==========================
 
         trasferta: {
 
@@ -218,16 +287,34 @@ export default async function handler(req, res) {
             away?.id ||
             null,
 
+
           nome:
             away?.team?.displayName ||
             null,
+
+
+          nome_breve:
+            away?.team?.shortDisplayName ||
+            null,
+
+
+          abbreviazione:
+            away?.team?.abbreviation ||
+            null,
+
 
           logo:
             away?.team?.logo ||
             null,
 
+
           punteggio:
-            away?.score ||
+            away?.score ??
+            null,
+
+
+          vincitore:
+            away?.winner ??
             null
 
         }
@@ -235,12 +322,24 @@ export default async function handler(req, res) {
       },
 
 
+      // ==============================
+      // TUTTI GLI EVENTI
+      // ==============================
+
       eventi,
 
+
+      // ==============================
+      // GOL
+      // ==============================
 
       gol:
         eventiSeparati.gol,
 
+
+      // ==============================
+      // CARTELLINI
+      // ==============================
 
       cartellini: {
 
@@ -253,25 +352,56 @@ export default async function handler(req, res) {
       },
 
 
+      // ==============================
+      // SOSTITUZIONI
+      // ==============================
+
       sostituzioni:
         eventiSeparati.sostituzioni,
 
+
+      // ==============================
+      // RIGORI
+      // ==============================
 
       rigori:
         eventiSeparati.rigori,
 
 
-      formazioni:
-        datiTecnici.formazioni,
+      // ==============================
+      // FORMAZIONI NORMALIZZATE
+      // ==============================
 
+      formazioni,
+
+
+      // ==============================
+      // STATISTICHE SQUADRE
+      // ==============================
 
       statistiche_squadre:
         statistiche,
 
 
+      // ==============================
+      // ALTRI EVENTI
+      // ==============================
+
       altri_eventi:
         eventiSeparati.altri,
 
+
+      // ==============================
+      // DATI TECNICI ORIGINALI
+      // ==============================
+
+      dati_tecnici:
+        datiTecnici,
+
+
+      // ==============================
+      // DATI ORIGINALI ESPN
+      // ==============================
 
       dati_originali:
         summary
