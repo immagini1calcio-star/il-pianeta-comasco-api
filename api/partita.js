@@ -267,10 +267,16 @@ export default async function handler(req, res) {
 
         }
 
-      }
+      },
+
+      scontro_diretto: null
 
     };
 
+
+    // ==========================================
+    // RECUPERO CONTESTO
+    // ==========================================
 
     if (
       homeId &&
@@ -314,7 +320,7 @@ export default async function handler(req, res) {
 
 
       // ========================================
-      // PARTITA
+      // DATI PRINCIPALI PARTITA
       // ========================================
 
       partita: {
@@ -481,7 +487,15 @@ export default async function handler(req, res) {
 
 
       // ========================================
-      // EVENTI
+      // SCONTRO DIRETTO
+      // ========================================
+
+      scontro_diretto:
+        contesto.scontro_diretto,
+
+
+      // ========================================
+      // TUTTI GLI EVENTI
       // ========================================
 
       eventi,
@@ -534,7 +548,7 @@ export default async function handler(req, res) {
 
 
       // ========================================
-      // STATISTICHE
+      // STATISTICHE SQUADRE
       // ========================================
 
       statistiche_squadre:
