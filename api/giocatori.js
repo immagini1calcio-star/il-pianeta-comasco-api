@@ -1,109 +1,256 @@
 import { trovaComo } from "../lib/como.js";
 import { espnFetch } from "../lib/espn.js";
 
-export default async function handler(req, res) {
-  try {
-    const como = await trovaComo();
 
-    const roster = await espnFetch(
-      "ita.1",
-      `teams/${como.id}/roster`
-    );
+export default async function handler(req, res) {
+
+  try {
+
+    // ==========================================
+    // TROVA COMO
+    // ==========================================
+
+    const como =
+      await trovaComo();
+
+
+    // ==========================================
+    // RECUPERA ROSA ESPN
+    // ==========================================
+
+    const roster =
+      await espnFetch(
+        "ita.1",
+        `teams/${como.id}/roster`
+      );
+
+
+    // ==========================================
+    // ELENCO ATLETI
+    // ==========================================
 
     const atleti =
-      roster.athletes ||
-      roster.athletes?.items ||
+      roster?.athletes ||
+      roster?.athletes?.items ||
       [];
 
-    const giocatori = atleti.map((item) => {
-      const atleta = item.athlete || item;
 
-      return {
-        id: atleta.id || null,
+    // ==========================================
+    // NORMALIZZAZIONE GIOCATORI
+    // ==========================================
 
-        nome:
-          atleta.displayName ||
-          atleta.fullName ||
-          null,
+    const giocatori =
+      atleti.map((item) => {
 
-        nome_breve:
-          atleta.shortName ||
-          null,
+        const atleta =
+          item.athlete ||
+          item;
 
-        cognome:
-          atleta.lastName ||
-          null,
 
-        numero:
-          atleta.jersey ||
-          null,
+        return {
 
-        ruolo:
-          atleta.position?.displayName ||
-          atleta.position?.name ||
-          null,
+          // ==============================
+          // IDENTIFICAZIONE
+          // ==============================
 
-        ruolo_abbreviazione:
-          atleta.position?.abbreviation ||
-          null,
+          id:
+            atleta.id ||
+            null,
 
-        nazionalita:
-          atleta.nationality ||
-          null,
+          nome:
+            atleta.displayName ||
+            atleta.fullName ||
+            null,
 
-        eta:
-          atleta.age ||
-          null,
+          nome_completo:
+            atleta.fullName ||
+            atleta.displayName ||
+            null,
 
-        altezza:
-          atleta.height ||
-          null,
+          nome_breve:
+            atleta.shortName ||
+            null,
 
-        peso:
-          atleta.weight ||
-          null,
+          nome_abbreviazione:
+            atleta.abbreviation ||
+            null,
 
-        piede:
-          atleta.foot ||
-          null,
+          cognome:
+            atleta.lastName ||
+            null,
 
-        foto:
-          atleta.headshot?.href ||
-          null,
 
-        posizione_roster:
-          item.position ||
-          null,
+          // ==============================
+          // DATI SPORTIVI
+          // ==============================
 
-        stato:
-          atleta.status ||
-          null
-      };
-    });
+          numero:
+            atleta.jersey ||
+            null,
+
+          ruolo:
+            atleta.position?.displayName ||
+            atleta.position?.name ||
+            null,
+
+          ruolo_abbreviazione:
+            atleta.position?.abbreviation ||
+            null,
+
+          posizione_roster:
+            item.position ||
+            null,
+
+
+          // ==============================
+          // DATI PERSONALI DISPONIBILI
+          // ==============================
+
+          nazionalita:
+            atleta.nationality ||
+            null,
+
+          eta:
+            atleta.age ||
+            null,
+
+          data_nascita:
+            atleta.dateOfBirth ||
+            null,
+
+          altezza:
+            atleta.height ||
+            null,
+
+          peso:
+            atleta.weight ||
+            null,
+
+          piede:
+            atleta.foot ||
+            null,
+
+
+          // ==============================
+          // IMMAGINI
+          // ==============================
+
+          foto:
+            atleta.headshot?.href ||
+            null,
+
+
+          // ==============================
+          // STATO
+          // ==============================
+
+          stato:
+            atleta.status ||
+            null,
+
+
+          // ==============================
+          // DATI EXTRA ESPN
+          // ==============================
+
+          posizione:
+            atleta.position ||
+            null,
+
+          team:
+            atleta.team ||
+            null
+
+        };
+
+      });
+
+
+    // ==========================================
+    // RISPOSTA
+    // ==========================================
 
     res.status(200).json({
+
       success: true,
 
       source: "ESPN",
 
+
+      // ========================================
+      // SQUADRA
+      // ========================================
+
       squadra: {
-        id: como.id,
-        nome: como.displayName,
-        logo: como.logos?.[0]?.href || null
+
+        id:
+          como.id ||
+          null,
+
+        nome:
+          como.displayName ||
+          null,
+
+        nome_breve:
+          como.shortDisplayName ||
+          null,
+
+        abbreviazione:
+          como.abbreviation ||
+          null,
+
+        logo:
+          como.logos?.[0]?.href ||
+          null
+
       },
 
-      totale: giocatori.length,
 
-      giocatori
+      // ========================================
+      // TOTALE
+      // ========================================
+
+      totale:
+        giocatori.length,
+
+
+      // ========================================
+      // GIOCATORI
+      // ========================================
+
+      giocatori,
+
+
+      // ========================================
+      // DATI ORIGINALI
+      // ========================================
+
+      dati_originali:
+        roster
+
     });
+
 
   } catch (error) {
-    console.error(error);
+
+    console.error(
+      "Errore API giocatori:",
+      error
+    );
+
 
     res.status(500).json({
+
       success: false,
+
       source: "ESPN",
-      error: error.message
+
+      error:
+        error?.message ||
+        "Errore sconosciuto"
+
     });
+
   }
+
 }
