@@ -4,8 +4,10 @@
   "private": true,
   "description": "API per Il Pianeta Comasco",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "start": "vercel dev"
-  },
-  "dependencies": {}
+  }
 }
