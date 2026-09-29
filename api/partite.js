@@ -1,4 +1,5 @@
 import { espnFetch } from "../lib/espn.js";
+import { normalizzaPartita } from "../lib/normalizer.js";
 
 export default async function handler(req, res) {
   try {
@@ -15,11 +16,20 @@ export default async function handler(req, res) {
       }
     );
 
+    const eventi = data.events || [];
+
+    const partite = eventi.map(normalizzaPartita);
+
     res.status(200).json({
       success: true,
+
       source: "ESPN",
+
       league,
-      data
+
+      totale: partite.length,
+
+      partite
     });
 
   } catch (error) {
