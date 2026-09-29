@@ -1,72 +1,148 @@
 import { trovaComo } from "../lib/como.js";
 
+import {
+  normalizzaListaOneFootball,
+  filtraNotizieComo
+} from "../lib/notizie/onefootball.js";
+
+import {
+  recuperaNotizieSky
+} from "../lib/notizie/sky.js";
+
+import {
+  recuperaNotizieGazzetta
+} from "../lib/notizie/gazzetta.js";
+
+import {
+  recuperaNotizieTMW
+} from "../lib/notizie/tuttomercatoweb.js";
+
+
+// ============================================
+// CONFIGURAZIONE FONTI
+// ============================================
 
 const FONTI = {
 
   onefootball: {
-    nome: "OneFootball",
-    dominio: "onefootball.com"
+    codice: "onefootball",
+    nome: "OneFootball"
   },
 
   sky_sport: {
-    nome: "Sky Sport",
-    dominio: "sport.sky.it"
+    codice: "sky_sport",
+    nome: "Sky Sport"
   },
 
   gazzetta: {
-    nome: "La Gazzetta dello Sport",
-    dominio: "gazzetta.it"
+    codice: "gazzetta",
+    nome: "La Gazzetta dello Sport"
   },
 
   tuttomercatoweb: {
-    nome: "TuttomercatoWEB",
-    dominio: "tuttomercatoweb.com"
+    codice: "tuttomercatoweb",
+    nome: "TuttomercatoWEB"
   }
 
 };
 
 
 // ============================================
-// CONTROLLA SE L'URL APPARTIENE ALLA FONTE
+// RIMUOVE DUPLICATI
 // ============================================
 
-function appartieneAllaFonte(
-  url,
-  dominio
+function rimuoviDuplicati(
+  notizie
 ) {
 
-  if (!url) {
-    return false;
-  }
+  const mappa =
+    new Map();
 
-  try {
 
-    const parsed =
-      new URL(url);
+  for (
+    const notizia
+    of notizie
+  ) {
 
-    return parsed.hostname
-      .toLowerCase()
-      .includes(
-        dominio.toLowerCase()
+    if (!notizia) {
+      continue;
+    }
+
+
+    const chiave =
+      notizia.url ||
+      `${notizia.fonte?.codice || "fonte"}-${notizia.titolo || ""}`;
+
+
+    if (
+      !mappa.has(chiave)
+    ) {
+
+      mappa.set(
+        chiave,
+        notizia
       );
 
-  } catch {
-
-    return false;
+    }
 
   }
+
+
+  return [
+    ...mappa.values()
+  ];
 
 }
 
 
 // ============================================
-// NORMALIZZA UNA NOTIZIA
+// ORDINA PER DATA
 // ============================================
 
-function normalizzaNotizia(
+function ordinaPerData(
+  notizie
+) {
+
+  return notizie.sort(
+    (a, b) => {
+
+      const dataA =
+        a?.data_pubblicazione
+          ? new Date(
+              a.data_pubblicazione
+            ).getTime()
+          : 0;
+
+
+      const dataB =
+        b?.data_pubblicazione
+          ? new Date(
+              b.data_pubblicazione
+            ).getTime()
+          : 0;
+
+
+      return dataB - dataA;
+
+    }
+  );
+
+}
+
+
+// ============================================
+// NORMALIZZA NOTIZIA GENERICA
+// ============================================
+
+function normalizzaGenerica(
   articolo,
   fonte
 ) {
+
+  if (!articolo) {
+    return null;
+  }
+
 
   return {
 
@@ -76,19 +152,23 @@ function normalizzaNotizia(
 
     titolo:
       articolo.titolo ||
+      articolo.title ||
       null,
 
     testo:
       articolo.testo ||
-      articolo.sommario ||
+      articolo.content ||
       null,
 
     sommario:
       articolo.sommario ||
+      articolo.summary ||
       null,
 
     data_pubblicazione:
       articolo.data_pubblicazione ||
+      articolo.publishedAt ||
+      articolo.date ||
       null,
 
     categoria:
@@ -97,10 +177,12 @@ function normalizzaNotizia(
 
     immagine:
       articolo.immagine ||
+      articolo.image ||
       null,
 
     url:
       articolo.url ||
+      articolo.link ||
       null,
 
     fonte: {
@@ -110,11 +192,7 @@ function normalizzaNotizia(
 
       nome:
         FONTI[fonte]?.nome ||
-        fonte,
-
-      dominio:
-        FONTI[fonte]?.dominio ||
-        null
+        fonte
 
     },
 
@@ -136,63 +214,31 @@ function normalizzaNotizia(
 
 
 // ============================================
-// RECUPERA URL FORNITI NELLA RICHIESTA
+// CREA STATO DELLA FONTE
 // ============================================
 
-function leggiUrlDaQuery(
-  req
+function statoFonte(
+  codice,
+  stato,
+  totale = 0,
+  errore = null
 ) {
 
-  let urls =
-    req.query?.url ||
-    req.query?.urls ||
-    [];
+  return {
 
-  if (!Array.isArray(urls)) {
+    codice,
 
-    urls =
-      String(urls)
-        .split(",");
+    nome:
+      FONTI[codice]?.nome ||
+      codice,
 
-  }
+    stato,
 
-  return urls
-    .map(
-      (url) =>
-        String(url).trim()
-    )
-    .filter(Boolean);
+    totale,
 
-}
+    errore
 
-
-// ============================================
-// RAGGRUPPA GLI URL PER FONTE
-// ============================================
-
-function identificaFonte(
-  url
-) {
-
-  for (
-    const codice
-    of Object.keys(FONTI)
-  ) {
-
-    if (
-      appartieneAllaFonte(
-        url,
-        FONTI[codice].dominio
-      )
-    ) {
-
-      return codice;
-
-    }
-
-  }
-
-  return null;
+  };
 
 }
 
@@ -208,86 +254,321 @@ export default async function handler(
 
   try {
 
+    // ========================================
+    // TROVA COMO
+    // ========================================
+
     const como =
       await trovaComo();
 
 
-    const urls =
-      leggiUrlDaQuery(
-        req
+    const limite =
+      Math.min(
+        Number(
+          req.query?.limit ||
+          50
+        ),
+        100
       );
 
+
+    // ========================================
+    // RISULTATI
+    // ========================================
 
     const notizie = [];
 
 
+    const fonti = [];
+
+
     // ========================================
-    // URL FORNITI
+    // ONEFOOTBALL
     // ========================================
 
-    for (
-      const url
-      of urls
-    ) {
+    try {
 
-      const fonte =
-        identificaFonte(
-          url
+      /*
+       * OneFootball non espone un endpoint
+       * pubblico unico che possiamo assumere.
+       *
+       * Per questo il connettore viene
+       * preparato per ricevere eventuali
+       * articoli raccolti da un livello
+       * esterno.
+       */
+
+      const articoliOneFootball = [];
+
+
+      const normalizzate =
+        normalizzaListaOneFootball(
+          articoliOneFootball
         );
 
 
-      if (!fonte) {
-
-        continue;
-
-      }
+      const soloComo =
+        filtraNotizieComo(
+          normalizzate
+        );
 
 
       notizie.push(
+        ...soloComo
+      );
 
-        normalizzaNotizia(
 
-          {
-
-            id:
-              null,
-
-            titolo:
-              null,
-
-            testo:
-              null,
-
-            sommario:
-              null,
-
-            data_pubblicazione:
-              null,
-
-            categoria:
-              null,
-
-            immagine:
-              null,
-
-            url,
-
-            squadra_id:
-              como.id,
-
-            squadra_nome:
-              como.displayName ||
-              "Como"
-
-          },
-
-          fonte
-
+      fonti.push(
+        statoFonte(
+          "onefootball",
+          "predisposta",
+          soloComo.length
         )
+      );
 
+    } catch (error) {
+
+      console.error(
+        "Errore OneFootball:",
+        error.message
+      );
+
+
+      fonti.push(
+        statoFonte(
+          "onefootball",
+          "errore",
+          0,
+          error.message
+        )
       );
 
     }
+
+
+    // ========================================
+    // SKY SPORT
+    // ========================================
+
+    try {
+
+      const articoliSky =
+        await recuperaNotizieSky({
+          limit: limite
+        });
+
+
+      notizie.push(
+        ...articoliSky
+      );
+
+
+      fonti.push(
+        statoFonte(
+          "sky_sport",
+          "ok",
+          articoliSky.length
+        )
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Errore Sky Sport:",
+        error.message
+      );
+
+
+      fonti.push(
+        statoFonte(
+          "sky_sport",
+          "errore",
+          0,
+          error.message
+        )
+      );
+
+    }
+
+
+    // ========================================
+    // GAZZETTA
+    // ========================================
+
+    try {
+
+      const articoliGazzetta =
+        await recuperaNotizieGazzetta({
+          limit: limite
+        });
+
+
+      notizie.push(
+        ...articoliGazzetta
+      );
+
+
+      fonti.push(
+        statoFonte(
+          "gazzetta",
+          "ok",
+          articoliGazzetta.length
+        )
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Errore Gazzetta:",
+        error.message
+      );
+
+
+      fonti.push(
+        statoFonte(
+          "gazzetta",
+          "errore",
+          0,
+          error.message
+        )
+      );
+
+    }
+
+
+    // ========================================
+    // TUTTOMERCATOWEB
+    // ========================================
+
+    try {
+
+      const articoliTMW =
+        await recuperaNotizieTMW({
+          limit: limite
+        });
+
+
+      notizie.push(
+        ...articoliTMW
+      );
+
+
+      fonti.push(
+        statoFonte(
+          "tuttomercatoweb",
+          "ok",
+          articoliTMW.length
+        )
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Errore TuttomercatoWEB:",
+        error.message
+      );
+
+
+      fonti.push(
+        statoFonte(
+          "tuttomercatoweb",
+          "errore",
+          0,
+          error.message
+        )
+      );
+
+    }
+
+
+    // ========================================
+    // NORMALIZZAZIONE FINALE
+    // ========================================
+
+    let risultato =
+      notizie
+        .map(
+          (notizia) =>
+            normalizzaGenerica(
+              notizia,
+              notizia?.fonte?.codice ||
+              "sconosciuta"
+            )
+        )
+        .filter(Boolean);
+
+
+    // ========================================
+    // SOLO COMO
+    // ========================================
+
+    risultato =
+      risultato.filter(
+        (notizia) => {
+
+          const testo =
+            [
+              notizia.titolo,
+              notizia.testo,
+              notizia.sommario,
+              notizia.squadra?.nome
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase();
+
+
+          return (
+
+            testo.includes("como")
+
+            ||
+
+            testo.includes(
+              "fabregas"
+            )
+
+            ||
+
+            testo.includes(
+              "sinigaglia"
+            )
+
+          );
+
+        }
+      );
+
+
+    // ========================================
+    // DUPLICATI
+    // ========================================
+
+    risultato =
+      rimuoviDuplicati(
+        risultato
+      );
+
+
+    // ========================================
+    // ORDINAMENTO
+    // ========================================
+
+    risultato =
+      ordinaPerData(
+        risultato
+      );
+
+
+    // ========================================
+    // LIMITE FINALE
+    // ========================================
+
+    risultato =
+      risultato.slice(
+        0,
+        limite * 4
+      );
 
 
     // ========================================
@@ -298,8 +579,8 @@ export default async function handler(
 
       success: true,
 
-      source: "NEWS_AGGREGATOR",
-
+      source:
+        "NEWS_AGGREGATOR",
 
       squadra: {
 
@@ -310,6 +591,10 @@ export default async function handler(
         nome:
           como.displayName ||
           "Como",
+
+        nome_breve:
+          como.shortDisplayName ||
+          null,
 
         abbreviazione:
           como.abbreviation ||
@@ -322,36 +607,22 @@ export default async function handler(
       },
 
 
-      fonti_disponibili:
-        Object.entries(
-          FONTI
-        ).map(
-          ([codice, fonte]) => ({
-
-            codice,
-
-            nome:
-              fonte.nome,
-
-            dominio:
-              fonte.dominio
-
-          })
-        ),
+      fonti,
 
 
       totale:
-        notizie.length,
+        risultato.length,
 
 
-      notizie,
+      notizie:
+        risultato,
 
 
-      nota:
-        "Il modulo è predisposto per le quattro fonti. Gli articoli vengono memorizzati tramite metadati e URL senza copiare integralmente contenuti editoriali protetti."
+      aggiornamento:
+        new Date().toISOString()
+
 
     });
-
 
   } catch (error) {
 
@@ -365,7 +636,8 @@ export default async function handler(
 
       success: false,
 
-      source: "NEWS_AGGREGATOR",
+      source:
+        "NEWS_AGGREGATOR",
 
       error:
         error?.message ||
@@ -375,4 +647,4 @@ export default async function handler(
 
   }
 
-  }
+}
