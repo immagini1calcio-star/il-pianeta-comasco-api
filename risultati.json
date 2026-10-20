@@ -1,0 +1,23 @@
+
+export async function caricaDatiComo() {
+  const response = await fetch("/risultati.json", {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Errore caricamento dati: HTTP ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// Esempio:
+caricaDatiComo()
+  .then(dati => {
+    console.log("Stato aggiornamento:", dati.stato);
+    console.log("Aggiornato UTC:", dati.aggiornato_utc);
+    console.log("Como:", dati.squadre.como);
+    console.log("Primavera:", dati.squadre.primavera);
+    console.log("Femminile:", dati.squadre.femminile);
+  })
+  .catch(console.error);
