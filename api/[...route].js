@@ -1,735 +1,369 @@
+/*
+ * IL PIANETA COMASCO — SOFASCORE API
+ * File: api/[...route].js
+ * Runtime: Node.js 20+
+ *
+ * Fonte partite: SofaScore.
+ * Non usa ESPN.
+ * Non inventa dati mancanti.
+ */
 
-const VERSION = "7.0.0";
+const BASE = "https://www.sofascore.com/api/v1";
 
 const TEAMS = {
-  como: {
-    id: 2704,
+  men: {
     name: "Como",
-    aliases: ["como", "prima squadra", "maschile"],
+    id: 2704,
+    type: "Prima squadra maschile"
   },
   primavera: {
-    id: 206254,
     name: "Como Primavera",
-    aliases: ["primavera", "u19", "under 19"],
+    id: 206254,
+    type: "Primavera maschile"
   },
   women: {
-    id: 1114927,
     name: "Como Women",
-    aliases: ["women", "femminile", "femminile"],
-  },
+    id: 1114927,
+    type: "Prima squadra femminile"
+  }
 };
 
-const SOFA = "https://www.sofascore.com/api/v1";
-const RSS = "https://news.google.com/rss/search";
+export default async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=300");
 
-const NEWS_SOURCES = [
-  { name: "OneFootball", q: 'site:onefootball.com "Como 1907"' },
-  { name: "Sky Sport", q: 'site:sport.sky.it Como calcio' },
-  { name: "Gazzetta dello Sport", q: 'site:gazzetta.it Como calcio' },
-  { name: "Tuttomercatoweb", q: 'site:tuttomercatoweb.com Como' },
-  {
-    name: "Fabrizio Romano",
-    q: '"Fabrizio Romano" Como calcio',
-  },
-  { name: "Como Primavera", q: '"Como Primavera" calcio' },
-  { name: "Como Women", q: '"Como Women" calcio OR "Como femminile"' },
-];
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    return res.end();
+  }
 
-const TEAM_ALIASES = {
-  como: ["como", "como 1907"],
-  primavera: ["como primavera", "primavera"],
-  women: ["como women", "como femminile", "femminile"],
-};
+  if (req.method !== "GET") {
+    return send(res, 405, { error: "Usa il metodo GET." });
+  }
 
-function send(res, status, body) {
-  res.statusCode = status;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
-  res.end(JSON.stringify(body, null, 2));
+  const url = new URL(
+    req.url,
+    `https://${req.headers.host || "localhost"}`
+  );
+
+  const route =
+    url.pathname.replace(/^\/api\/?/, "").replace(/\/+$/, "") || "health";
+
+  const q = url.searchParams;
+  const teamId = Number(q.get("teamId") || q.get("team") || TEAMS.men.id);
+  const eventId = q.get("id") || q.get("eventId");
+
+  try {
+    let result;
+
+    if (route === "health") {
+      result = {
+        ok: true,
+        service: "Il Pianeta Comasco API",
+        version: "SofaScore-1.0",
+        source: "SofaScore",
+        generatedAt: new Date().toISOString(),
+        endpoints: endpoints()
+      };
+
+    } else if (route === "config" || route === "configurazione") {
+      result = {
+        source: "SofaScore",
+        teams: TEAMS,
+        baseUrl: BASE,
+        note: "Gli ID sono ID squadra SofaScore."
+      };
+
+    } else if (route === "squadre" || route === "teams") {
+      result = {
+        source: "SofaScore",
+        teams: await Promise.all(
+          Object.values(TEAMS).map(async team => ({
+            ...team,
+            profile: await safe(() => get(`/team/${team.id}`))
+          }))
+        )
+      };
+
+    } else if (route === "squadra" || route === "team") {
+      result = await get(`/team/${teamId}`);
+
+    } else if (route === "rosa" || route === "giocatori" || route === "players") {
+      result = await get(`/team/${teamId}/players`);
+
+    } else if (route === "forma" || route === "performance") {
+      result = await get(`/team/${teamId}/performance`);
+
+    } else if (route === "partite" || route === "calendario" || route === "matches") {
+      const direction = q.get("direction") || "all";
+
+      if (!["all", "last", "next"].includes(direction)) {
+        throw new Error("direction deve essere all, last oppure next.");
+      }
+
+      result = await teamEvents(teamId, direction, q.get("pages"));
+
+    } else if (route === "ultime" || route === "ultime-partite") {
+      result = await teamEvents(teamId, "last", q.get("pages"));
+
+    } else if (route === "prossime" || route === "prossime-partite") {
+      result = await teamEvents(teamId, "next", q.get("pages"));
+
+    } else if (route === "partita" || route === "evento" || route === "match") {
+      if (!eventId) throw new Error("Manca ?id=ID_PARTITA.");
+      result = await get(`/event/${encodeURIComponent(eventId)}`);
+
+    } else if (route === "formazioni" || route === "lineups") {
+      if (!eventId) throw new Error("Manca ?id=ID_PARTITA.");
+      result = await get(`/event/${encodeURIComponent(eventId)}/lineups`);
+
+    } else if (route === "statistiche" || route === "statistics") {
+      if (!eventId) throw new Error("Manca ?id=ID_PARTITA.");
+      result = await get(`/event/${encodeURIComponent(eventId)}/statistics`);
+
+    } else if (route === "episodi" || route === "incidents") {
+      if (!eventId) throw new Error("Manca ?id=ID_PARTITA.");
+      result = await get(`/event/${encodeURIComponent(eventId)}/incidents`);
+
+    } else if (route === "allenatori" || route === "managers") {
+      if (!eventId) throw new Error("Manca ?id=ID_PARTITA.");
+      result = await get(`/event/${encodeURIComponent(eventId)}/managers`);
+
+    } else if (route === "scontri-diretti" || route === "h2h") {
+      if (!eventId) {
+        throw new Error("Manca ?id=ID_PARTITA per trovare gli scontri diretti.");
+      }
+      result = await get(`/event/${encodeURIComponent(eventId)}/h2h`);
+
+    } else if (route === "classifica" || route === "standings") {
+      const tournamentId = q.get("tournamentId");
+      const seasonId = q.get("seasonId");
+
+      if (!tournamentId || !seasonId) {
+        throw new Error(
+          "Per la classifica servono ?tournamentId=ID&seasonId=ID. " +
+          "Sono ID della competizione e della stagione SofaScore, non ID squadra."
+        );
+      }
+
+      result = await get(
+        `/tournament/${encodeURIComponent(tournamentId)}` +
+        `/season/${encodeURIComponent(seasonId)}/standings/total`
+      );
+
+    } else if (route === "como" || route.startsWith("como/")) {
+      const sub = route.split("/")[1] || "riepilogo";
+      const team = TEAMS[q.get("squadra") || "men"] || TEAMS.men;
+
+      if (sub === "primavera") {
+        result = await teamSummary(TEAMS.primavera.id);
+      } else if (sub === "women") {
+        result = await teamSummary(TEAMS.women.id);
+      } else if (sub === "partite") {
+        result = await teamEvents(team.id, "all", q.get("pages"));
+      } else if (sub === "rosa") {
+        result = await get(`/team/${team.id}/players`);
+      } else {
+        result = await teamSummary(team.id);
+      }
+
+    } else if (route === "tutto") {
+      const pages = q.get("pages") || "3";
+
+      result = {
+        source: "SofaScore",
+        generatedAt: new Date().toISOString(),
+        teams: await Promise.all(
+          Object.values(TEAMS).map(async team => ({
+            ...team,
+            data: await safe(() => teamSummary(team.id, pages))
+          }))
+        )
+      };
+
+    } else {
+      return send(res, 404, {
+        error: "Endpoint non trovato",
+        requested: route,
+        endpoints: endpoints()
+      });
+    }
+
+    return send(res, 200, result);
+
+  } catch (error) {
+    const message = String(error?.message || error);
+
+    const status = message.includes("HTTP 403") ? 502
+      : message.includes("HTTP 429") ? 503
+      : 502;
+
+    return send(res, status, {
+      ok: false,
+      source: "SofaScore",
+      endpoint: route,
+      error: message,
+      generatedAt: new Date().toISOString(),
+      note: message.includes("HTTP 403")
+        ? "SofaScore ha rifiutato la richiesta dal server. Il codice non può garantire l'accesso."
+        : message.includes("HTTP 429")
+        ? "Troppe richieste. Riprova più tardi."
+        : "Controlla l'endpoint e la disponibilità della fonte."
+    });
+  }
 }
 
-function normalizeTeam(value) {
-  const v = String(value || "").toLowerCase().trim();
+async function teamSummary(teamId, pages = "3") {
+  const results = await Promise.allSettled([
+    get(`/team/${teamId}`),
+    get(`/team/${teamId}/players`),
+    get(`/team/${teamId}/performance`),
+    teamEvents(teamId, "all", pages)
+  ]);
 
-  if (["como", "2704", "prima squadra", "maschile"].includes(v)) {
-    return "como";
-  }
-
-  if (
-    ["primavera", "206254", "u19", "under 19", "como primavera"].includes(v)
-  ) {
-    return "primavera";
-  }
-
-  if (
-    ["women", "1114927", "femminile", "como women", "como femminile"].includes(v)
-  ) {
-    return "women";
-  }
-
-  return null;
+  return {
+    source: "SofaScore",
+    teamId,
+    generatedAt: new Date().toISOString(),
+    profile: value(results[0]),
+    players: value(results[1]),
+    performance: value(results[2]),
+    matches: value(results[3])
+  };
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, {
+/*
+ * Recupera le pagine disponibili delle partite.
+ * pages è limitato a 10 per contenere le richieste.
+ * "all" combina eventi passati e futuri senza duplicati.
+ */
+async function teamEvents(teamId, direction = "all", pages = "3") {
+  const maxPages = Math.max(1, Math.min(10, Number(pages) || 3));
+  const directions = direction === "all" ? ["last", "next"] : [direction];
+
+  const eventsById = new Map();
+  const errors = [];
+
+  for (const dir of directions) {
+    for (let page = 0; page < maxPages; page++) {
+      try {
+        const data = await get(`/team/${teamId}/events/${dir}/${page}`);
+        const events = data.events || [];
+
+        if (events.length === 0) break;
+
+        for (const event of events) {
+          const id = event.id ?? event.event?.id;
+          if (id != null) {
+            eventsById.set(String(id), {
+              ...event,
+              eventId: String(id),
+              requestedDirection: dir
+            });
+          }
+        }
+
+        // Piccola pausa tra pagine per limitare il carico sulla fonte.
+        await delay(250);
+
+      } catch (error) {
+        errors.push({
+          direction: dir,
+          page,
+          error: String(error?.message || error)
+        });
+
+        // Se la prima pagina è bloccata, non insistere con altre richieste.
+        break;
+      }
+    }
+  }
+
+  const events = [...eventsById.values()].sort((a, b) =>
+    Number(a.startTimestamp || a.start_timestamp || 0) -
+    Number(b.startTimestamp || b.start_timestamp || 0)
+  );
+
+  return {
+    source: "SofaScore",
+    teamId,
+    direction,
+    pagesRequestedPerDirection: maxPages,
+    count: events.length,
+    events,
+    errors,
+    partial: errors.length > 0,
+    generatedAt: new Date().toISOString(),
+    note: "Sono incluse le partite restituite dalle pagine richieste. " +
+      "Non è garantito che coprano tutta la storia della squadra."
+  };
+}
+
+async function get(path) {
+  const response = await fetch(`${BASE}${path}`, {
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36",
-      Accept: "application/json, text/plain, */*",
-      Referer: "https://www.sofascore.com/",
-      Origin: "https://www.sofascore.com",
+      "Accept": "application/json",
+      "User-Agent": "IlPianetaComasco/1.0"
     },
+    signal: AbortSignal.timeout(12000)
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status} - ${url}`);
+    throw new Error(`HTTP ${response.status} da SofaScore (${path})`);
   }
 
   return response.json();
 }
 
-async function sofa(path) {
-  return fetchJson(`${SOFA}${path}`);
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function safeSofa(path) {
+async function safe(fn) {
   try {
-    return await sofa(path);
+    return await fn();
   } catch (error) {
     return {
-      _error: error.message,
-      _unavailable: true,
+      error: String(error?.message || error)
     };
   }
 }
 
-function unwrapTeam(data) {
-  return data?.team || data?.data?.team || data?.teamInfo || data;
+function value(result) {
+  return result.status === "fulfilled"
+    ? result.value
+    : { error: String(result.reason?.message || result.reason) };
 }
 
-function simplifyEvent(event) {
-  const home = event?.homeTeam || event?.home_team || {};
-  const away = event?.awayTeam || event?.away_team || {};
-  const hs = event?.homeScore || event?.home_score || {};
-  const as = event?.awayScore || event?.away_score || {};
-
-  return {
-    id: event?.id,
-    slug: event?.slug,
-    data: event?.startTimestamp
-      ? new Date(event.startTimestamp * 1000).toISOString()
-      : event?.start_time || null,
-    stato: event?.status?.description || event?.status?.type || null,
-    competizione:
-      event?.tournament?.name ||
-      event?.uniqueTournament?.name ||
-      event?.tournament?.uniqueTournament?.name ||
-      null,
-    stagione: event?.season?.name || null,
-    casa: {
-      id: home.id,
-      nome: home.name || home.shortName || null,
-      stemma: home.id ? `https://www.sofascore.com/api/v1/team/${home.id}/image` : null,
-    },
-    trasferta: {
-      id: away.id,
-      nome: away.name || away.shortName || null,
-      stemma: away.id ? `https://www.sofascore.com/api/v1/team/${away.id}/image` : null,
-    },
-    risultato: {
-      casa: hs.current ?? hs.display ?? null,
-      trasferta: as.current ?? as.display ?? null,
-      intervallo_casa: hs.period1 ?? null,
-      intervallo_trasferta: as.period1 ?? null,
-    },
-    vincitore: event?.winnerCode ?? event?.winner_code ?? null,
-    campo: event?.venue?.name || null,
-    arbitro: event?.referee?.name || null,
-    evento_originale: event,
-  };
+function send(res, status, data) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  return res.end(JSON.stringify(data, null, 2));
 }
 
-async function getEvents(teamKey, direction, pages = 3) {
-  const team = TEAMS[teamKey];
-  const results = [];
-  const errors = [];
-
-  for (let page = 0; page < Math.min(Math.max(Number(pages) || 1, 1), 10); page++) {
-    try {
-      const data = await sofa(
-        `/team/${team.id}/events/${direction}/${page}`
-      );
-      const events = data?.events || data?.data?.events || [];
-      results.push(...events);
-
-      if (events.length === 0 || data?.hasNextPage === false) break;
-    } catch (error) {
-      errors.push(error.message);
-      break;
-    }
-  }
-
-  return { events: results, errors };
-}
-
-async function getMatches(teamKey, direction = "all", pages = 3) {
-  if (direction === "next" || direction === "last") {
-    const result = await getEvents(teamKey, direction, pages);
-    return {
-      squadra: TEAMS[teamKey],
-      direzione: direction,
-      conteggio: result.events.length,
-      partite: result.events.map(simplifyEvent),
-      errori: result.errors,
-      fonte: "Sofascore",
-    };
-  }
-
-  const [past, future] = await Promise.all([
-    getEvents(teamKey, "last", pages),
-    getEvents(teamKey, "next", pages),
-  ]);
-
-  const unique = new Map();
-  for (const event of [...past.events, ...future.events]) {
-    unique.set(event.id, event);
-  }
-
-  const events = [...unique.values()].sort(
-    (a, b) =>
-      (a.startTimestamp || 0) - (b.startTimestamp || 0)
-  );
-
-  return {
-    squadra: TEAMS[teamKey],
-    conteggio: events.length,
-    partite: events.map(simplifyEvent),
-    errori: [...past.errors, ...future.errors],
-    fonte: "Sofascore",
-  };
-}
-
-async function getRoster(teamKey) {
-  const id = TEAMS[teamKey].id;
-  const data = await sofa(`/team/${id}/players`);
-  const players = data?.players || data?.data?.players || [];
-
-  return {
-    squadra: TEAMS[teamKey],
-    conteggio: players.length,
-    rosa: players.map((item) => {
-      const p = item.player || item;
-      return {
-        id: p.id,
-        nome: p.name,
-        nome_breve: p.shortName,
-        ruolo: p.position,
-        numero: p.shirtNumber,
-        nazionalita: p.country?.name || p.country?.alpha2,
-        altezza: p.height,
-        piede: p.preferredFoot,
-        data_nascita: p.dateOfBirth,
-        valore: p.proposedMarketValue || null,
-        immagine: p.id
-          ? `https://www.sofascore.com/api/v1/player/${p.id}/image`
-          : null,
-      };
-    }),
-    fonte: "Sofascore",
-  };
-}
-
-async function getTeamProfile(teamKey) {
-  const team = TEAMS[teamKey];
-  const data = await sofa(`/team/${team.id}`);
-  const info = unwrapTeam(data);
-
-  return {
-    squadra: team,
-    profilo: info,
-    fonte: "Sofascore",
-  };
-}
-
-async function getUnavailable(teamKey) {
-  const id = TEAMS[teamKey].id;
-  const data = await sofa(`/team/${id}/players`);
-  const players = data?.players || data?.data?.players || [];
-
-  const roster = players.map((item) => item.player || item);
-
-  const missing = roster.filter(
-    (p) =>
-      p.injury ||
-      p.injured ||
-      p.suspension ||
-      p.suspended ||
-      p.unavailable
-  );
-
-  return {
-    squadra: TEAMS[teamKey],
-    conteggio: missing.length,
-    indisponibili: missing.map((p) => ({
-      id: p.id,
-      nome: p.name,
-      ruolo: p.position,
-      infortunio: p.injury || null,
-      squalifica: p.suspension || null,
-      indisponibile: p.unavailable || p.injured || p.suspended || null,
-    })),
-    nota:
-      "Sofascore potrebbe non fornire gli infortuni o le squalifiche in questo endpoint. Una lista vuota non dimostra che tutti siano disponibili.",
-    fonte: "Sofascore",
-  };
-}
-
-async function getCompetitions(teamKey) {
-  const id = TEAMS[teamKey].id;
-  const data = await sofa(`/team/${id}/unique-tournaments`);
-  return {
-    squadra: TEAMS[teamKey],
-    competizioni: data?.uniqueTournaments || data?.unique_tournaments || [],
-    fonte: "Sofascore",
-  };
-}
-
-async function getTeamStatistics(teamKey) {
-  const id = TEAMS[teamKey].id;
-  const tournaments = await getCompetitions(teamKey);
-  const list = tournaments.competizioni || [];
-  const results = [];
-
-  for (const item of list.slice(0, 8)) {
-    const tournament = item.uniqueTournament || item;
-    const tournamentId = tournament.id;
-    if (!tournamentId) continue;
-
-    try {
-      const seasonsData = await sofa(
-        `/unique-tournament/${tournamentId}/seasons`
-      );
-      const seasons =
-        seasonsData?.seasons || seasonsData?.data?.seasons || [];
-      const season = seasons[0];
-      if (!season?.id) continue;
-
-      const stats = await safeSofa(
-        `/team/${id}/unique-tournament/${tournamentId}/season/${season.id}/statistics/overall`
-      );
-
-      results.push({
-        competizione: tournament.name,
-        competizione_id: tournamentId,
-        stagione: season.name,
-        stagione_id: season.id,
-        statistiche: stats,
-      });
-    } catch (error) {
-      results.push({
-        competizione: tournament.name || null,
-        errore: error.message,
-      });
-    }
-  }
-
-  return {
-    squadra: TEAMS[teamKey],
-    statistiche: results,
-    fonte: "Sofascore",
-  };
-}
-
-async function getStandings(teamKey) {
-  const tournaments = await getCompetitions(teamKey);
-  const list = tournaments.competizioni || [];
-  const standings = [];
-
-  for (const item of list.slice(0, 8)) {
-    const tournament = item.uniqueTournament || item;
-    if (!tournament.id) continue;
-
-    try {
-      const seasonData = await sofa(
-        `/unique-tournament/${tournament.id}/seasons`
-      );
-      const seasons = seasonData?.seasons || [];
-      const season = seasons[0];
-      if (!season?.id) continue;
-
-      const table = await safeSofa(
-        `/unique-tournament/${tournament.id}/season/${season.id}/standings/total`
-      );
-
-      standings.push({
-        competizione: tournament.name,
-        stagione: season.name,
-        classifica: table,
-      });
-    } catch (error) {
-      standings.push({
-        competizione: tournament.name || null,
-        errore: error.message,
-      });
-    }
-  }
-
-  return {
-    squadra: TEAMS[teamKey],
-    classifiche: standings,
-    fonte: "Sofascore",
-  };
-}
-
-async function getEventDetails(eventId) {
-  if (!/^\d+$/.test(String(eventId || ""))) {
-    throw new Error("Parametro id mancante o non valido.");
-  }
-
-  const paths = {
-    partita: `/event/${eventId}`,
-    formazioni: `/event/${eventId}/lineups`,
-    statistiche: `/event/${eventId}/statistics`,
-    incidenti: `/event/${eventId}/incidents`,
-    scontri_diretti: `/event/${eventId}/h2h`,
-  };
-
-  const entries = await Promise.all(
-    Object.entries(paths).map(async ([key, path]) => [
-      key,
-      await safeSofa(path),
-    ])
-  );
-
-  return {
-    id: Number(eventId),
-    ...Object.fromEntries(entries),
-    fonte: "Sofascore",
-  };
-}
-
-function decodeXml(text) {
-  return String(text || "")
-    .replace(/<!\[CDATA\[(.*?)\]\]>/gs, "$1")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-}
-
-function xmlTag(item, tag) {
-  const match = item.match(
-    new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i")
-  );
-  return match ? decodeXml(match[1].trim()) : null;
-}
-
-async function getNews(teamKey) {
-  const key = normalizeTeam(teamKey) || "como";
-  const teamLabel = TEAMS[key].name;
-  const sourceQueries =
-    key === "como"
-      ? NEWS_SOURCES.slice(0, 5)
-      : key === "primavera"
-      ? [NEWS_SOURCES[5], { name: "OneFootball", q: 'site:onefootball.com "Como Primavera"' }]
-      : [NEWS_SOURCES[6], { name: "Sky Sport", q: 'site:sport.sky.it "Como Women"' }];
-
-  const all = [];
-
-  for (const source of sourceQueries) {
-    try {
-      const query = encodeURIComponent(`${source.q} when:30d`);
-      const url = `${RSS}?q=${query}&hl=it&gl=IT&ceid=IT:it`;
-      const response = await fetch(url, {
-        headers: { "User-Agent": "Mozilla/5.0" },
-      });
-
-      if (!response.ok) {
-        all.push({
-          fonte: source.name,
-          errore: `Google News RSS HTTP ${response.status}`,
-        });
-        continue;
-      }
-
-      const xml = await response.text();
-      const items = xml.match(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gi) || [];
-
-      for (const item of items) {
-        const title = xmlTag(item, "title");
-        const link = xmlTag(item, "link");
-        const pubDate = xmlTag(item, "pubDate");
-        const description = xmlTag(item, "description");
-
-        if (!title || !link) continue;
-
-        all.push({
-          titolo: title,
-          link,
-          data: pubDate ? new Date(pubDate).toISOString() : null,
-          descrizione: description,
-          fonte_ricerca: source.name,
-          squadra: teamLabel,
-        });
-      }
-    } catch (error) {
-      all.push({
-        fonte: source.name,
-        errore: error.message,
-      });
-    }
-  }
-
-  const seen = new Set();
-  const unique = all.filter((article) => {
-    if (!article.link) return true;
-    if (seen.has(article.link)) return false;
-    seen.add(article.link);
-    return true;
-  });
-
-  return {
-    squadra: teamLabel,
-    conteggio: unique.filter((a) => a.link).length,
-    notizie: unique,
-    fonte: "Google News RSS con ricerche per fonte",
-    nota:
-      "Le notizie sono individuate tramite Google News: non sono feed ufficiali diretti dei singoli editori.",
-  };
-}
-
-export default async function handler(req, res) {
-  const parsed = new URL(req.url, "https://api.local");
-  const parts = parsed.pathname.split("/").filter(Boolean);
-  const endpoint = parts[1] || parts[0] || "health";
-  const query = parsed.searchParams;
-
-  const requestedTeam =
-    query.get("team") ||
-    query.get("squadra") ||
-    (parts[0] === "api" && parts[1] && TEAMS[parts[1]]
-      ? parts[1]
-      : null);
-
-  const teamKey = normalizeTeam(requestedTeam);
-  const pages = Math.min(Math.max(Number(query.get("pages") || 3), 1), 10);
-
-  try {
-    if (endpoint === "health") {
-      return send(res, 200, {
-        ok: true,
-        servizio: "Il Pianeta Comasco API",
-        versione: VERSION,
-        fonte_sport: "Sofascore",
-        squadre: TEAMS,
-        generatedAt: new Date().toISOString(),
-      });
-    }
-
-    if (endpoint === "configurazione") {
-      return send(res, 200, {
-        ok: true,
-        versione: VERSION,
-        squadre: TEAMS,
-        endpoint: [
-          "/api/health",
-          "/api/configurazione",
-          "/api/squadre",
-          "/api/partite?team=como",
-          "/api/rosa?team=como",
-          "/api/indisponibili?team=como",
-          "/api/statistiche?team=como",
-          "/api/classifica?team=como",
-          "/api/competizioni?team=como",
-          "/api/notizie?team=como",
-          "/api/partita?id=EVENT_ID",
-          "/api/formazioni?id=EVENT_ID",
-          "/api/statistiche-partita?id=EVENT_ID",
-          "/api/incidenti?id=EVENT_ID",
-          "/api/scontri-diretti?id=EVENT_ID",
-        ],
-      });
-    }
-
-    if (endpoint === "squadre") {
-      const profiles = await Promise.all(
-        Object.entries(TEAMS).map(async ([key, team]) => ({
-          key,
-          ...team,
-          dati: await safeSofa(`/team/${team.id}`),
-        }))
-      );
-      return send(res, 200, {
-        ok: true,
-        squadre: profiles,
-        fonte: "Sofascore",
-      });
-    }
-
-    if (endpoint === "notizie") {
-      return send(res, 200, {
-        ok: true,
-        ...(await getNews(requestedTeam)),
-      });
-    }
-
-    if (endpoint === "tutto") {
-      if (!teamKey) {
-        return send(res, 400, {
-          ok: false,
-          errore: "Usa team=como, team=primavera o team=women.",
-        });
-      }
-
-      const results = await Promise.allSettled([
-        getTeamProfile(teamKey),
-        getMatches(teamKey, "all", pages),
-        getRoster(teamKey),
-        getUnavailable(teamKey),
-        getCompetitions(teamKey),
-        getTeamStatistics(teamKey),
-        getStandings(teamKey),
-        getNews(teamKey),
-      ]);
-
-      return send(res, 200, {
-        ok: true,
-        squadra: TEAMS[teamKey],
-        risultati: results.map((r) =>
-          r.status === "fulfilled"
-            ? { ok: true, data: r.value }
-            : { ok: false, errore: r.reason?.message || "Errore sconosciuto" }
-        ),
-      });
-    }
-
-    if (
-      [
-        "partite",
-        "calendario",
-        "prossime",
-        "ultime",
-        "rosa",
-        "indisponibili",
-        "statistiche",
-        "classifica",
-        "competizioni",
-        "riepilogo",
-      ].includes(endpoint)
-    ) {
-      if (!teamKey) {
-        return send(res, 400, {
-          ok: false,
-          endpoint,
-          team: requestedTeam,
-          error: "Specifica team=como, team=primavera o team=women.",
-          squadre: TEAMS,
-        });
-      }
-
-      let result;
-
-      if (endpoint === "partite" || endpoint === "calendario") {
-        result = await getMatches(
-          teamKey,
-          query.get("direction") || "all",
-          pages
-        );
-      } else if (endpoint === "prossime") {
-        result = await getMatches(teamKey, "next", pages);
-      } else if (endpoint === "ultime") {
-        result = await getMatches(teamKey, "last", pages);
-      } else if (endpoint === "rosa") {
-        result = await getRoster(teamKey);
-      } else if (endpoint === "indisponibili") {
-        result = await getUnavailable(teamKey);
-      } else if (endpoint === "statistiche") {
-        result = await getTeamStatistics(teamKey);
-      } else if (endpoint === "classifica") {
-        result = await getStandings(teamKey);
-      } else if (endpoint === "competizioni") {
-        result = await getCompetitions(teamKey);
-      } else {
-        result = await Promise.allSettled([
-          getTeamProfile(teamKey),
-          getMatches(teamKey, "all", pages),
-          getRoster(teamKey),
-          getUnavailable(teamKey),
-          getCompetitions(teamKey),
-          getTeamStatistics(teamKey),
-          getStandings(teamKey),
-        ]);
-      }
-
-      return send(res, 200, {
-        ok: true,
-        endpoint,
-        team: teamKey,
-        data: result,
-      });
-    }
-
-    if (
-      ["partita", "formazioni", "statistiche-partita", "incidenti", "scontri-diretti"].includes(endpoint)
-    ) {
-      const id = query.get("id");
-      if (!id) {
-        return send(res, 400, {
-          ok: false,
-          error: "Manca il parametro id della partita Sofascore.",
-        });
-      }
-
-      const data = await getEventDetails(id);
-      const map = {
-        partita: "partita",
-        formazioni: "formazioni",
-        "statistiche-partita": "statistiche",
-        incidenti: "incidenti",
-        "scontri-diretti": "scontri_diretti",
-      };
-
-      return send(res, 200, {
-        ok: !data[map[endpoint]]?._unavailable,
-        endpoint,
-        id,
-        data: data[map[endpoint]],
-        fonte: "Sofascore",
-      });
-    }
-
-    return send(res, 404, {
-      ok: false,
-      error: "Endpoint non trovato.",
-      endpoint_richiesti: [
-        "/api/health",
-        "/api/configurazione",
-        "/api/squadre",
-        "/api/partite?team=como",
-        "/api/rosa?team=como",
-        "/api/indisponibili?team=como",
-        "/api/statistiche?team=como",
-        "/api/classifica?team=como",
-        "/api/competizioni?team=como",
-        "/api/notizie?team=como",
-        "/api/partita?id=EVENT_ID",
-        "/api/formazioni?id=EVENT_ID",
-        "/api/statistiche-partita?id=EVENT_ID",
-        "/api/incidenti?id=EVENT_ID",
-        "/api/scontri-diretti?id=EVENT_ID",
-        "/api/tutto?team=como",
-      ],
-    });
-  } catch (error) {
-    return send(res, 502, {
-      ok: false,
-      endpoint,
-      team: teamKey,
-      error: error.message || "Errore durante il recupero dei dati.",
-      source: "Sofascore / Google News RSS",
-      note:
-        "Se compare HTTP 403, Sofascore sta rifiutando la richiesta. Gli ID fissi evitano la ricerca della squadra, ma non eliminano i blocchi del servizio.",
-    });
-  }
+function endpoints() {
+  return [
+    "/api/health",
+    "/api/configurazione",
+    "/api/squadre",
+    "/api/squadra?teamId=2704",
+    "/api/rosa?teamId=2704",
+    "/api/forma?teamId=2704",
+    "/api/partite?teamId=2704&direction=all&pages=3",
+    "/api/ultime?teamId=2704&pages=3",
+    "/api/prossime?teamId=2704&pages=3",
+    "/api/partita?id=ID_PARTITA",
+    "/api/formazioni?id=ID_PARTITA",
+    "/api/statistiche?id=ID_PARTITA",
+    "/api/episodi?id=ID_PARTITA",
+    "/api/allenatori?id=ID_PARTITA",
+    "/api/scontri-diretti?id=ID_PARTITA",
+    "/api/classifica?tournamentId=ID&seasonId=ID",
+    "/api/como",
+    "/api/como/primavera",
+    "/api/como/women",
+    "/api/tutto?pages=3"
+  ];
 }
