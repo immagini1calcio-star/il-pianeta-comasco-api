@@ -18,7 +18,7 @@ const TEAMS = {
   women: {
     name: "Como Women",
     searches: ["Como Women", "Como femminile"],
-    aliases: ["como women", "como femminile", "FC Como", "como women 1907"]
+    aliases: ["como women", "como femminile", "como", "como women 1907"]
   }
 };
 
